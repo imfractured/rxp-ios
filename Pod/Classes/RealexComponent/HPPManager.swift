@@ -4,6 +4,25 @@
 
 import UIKit
 
+public enum HPPType {
+  case string(String)
+  case integer(Int)
+  case float(Double)
+  case bool(Bool)
+}
+public enum HPPValue {
+  case node(HPPType)
+  case array([HPPType])
+  case dictionary(Dictionary<String, HPPValue>)
+}
+public typealias HPPDictionary = Dictionary<String, HPPValue>
+
+public protocol HPPSwiftManagerDelegate {
+    func HPPSwiftManagerCompletedWithResult(_ result: HPPDictionary)
+    func HPPSwiftManagerFailedWithError(_ error: Error?)
+    func HPPSwiftManagerCancelled()
+}
+
 /**
  *  The delegate callbacks which allow the host app to receive all possible results form the component.
  */
@@ -191,6 +210,7 @@ open class HPPManager: NSObject, UIWebViewDelegate, HPPViewControllerDelegate {
      * The HPPManager's delegate to receive the result of the interaction.
      */
     open var delegate:HPPManagerDelegate?
+    open var swiftDelegate:HPPSwiftManagerDelegate?
 
     /**
      * Dictionary to hold the reqeust sent to HPP.
@@ -384,6 +404,7 @@ open class HPPManager: NSObject, UIWebViewDelegate, HPPViewControllerDelegate {
                     // error
                     UIApplication.shared.isNetworkActivityIndicatorVisible = false
                     self.delegate?.HPPManagerFailedWithError!(error! as NSError)
+                    self.swiftDelegate?.HPPSwiftManagerFailedWithError(error)
                     self.hppViewController.dismiss(animated: true, completion: nil)
                 }
 
@@ -391,6 +412,7 @@ open class HPPManager: NSObject, UIWebViewDelegate, HPPViewControllerDelegate {
                 // error
                 UIApplication.shared.isNetworkActivityIndicatorVisible = false
                 self.delegate?.HPPManagerFailedWithError!(error as NSError)
+                self.swiftDelegate?.HPPSwiftManagerFailedWithError(error)
                 self.hppViewController.dismiss(animated: true, completion: nil)
             }
         })
@@ -441,24 +463,36 @@ open class HPPManager: NSObject, UIWebViewDelegate, HPPViewControllerDelegate {
 
         let session = URLSession.shared
         let dataTask = session.dataTask(with: request, completionHandler: { (data:Data?, response:URLResponse?, error:Error?) -> Void in
+            
+            // Stop the spinner
+            UIApplication.shared.isNetworkActivityIndicatorVisible = false
+            
             do {
-                // Stop the spinner
-                UIApplication.shared.isNetworkActivityIndicatorVisible = false
-
+                // success
                 if let receivedData = data {
-                    // success
-                    let decodedResponse = try JSONSerialization.jsonObject(with: receivedData, options: [JSONSerialization.ReadingOptions.allowFragments]) as! Dictionary <String, String>
-                    self.delegate?.HPPManagerCompletedWithResult!(decodedResponse)
-                }
-                else {
+                    
+                    // if objc delegate
+                    if let delegate = self.delegate {
+                        let decodedResponse = try JSONSerialization.jsonObject(with: receivedData, options: [JSONSerialization.ReadingOptions.allowFragments]) as! Dictionary <String, String>
+                        delegate.HPPManagerCompletedWithResult!(decodedResponse)
+                    
+                    // if swift delegate
+                    } else if let swiftDelegate = self.swiftDelegate {
+                        let decodedResponse = try JSONSerialization.jsonObject(with: receivedData, options: [JSONSerialization.ReadingOptions.allowFragments]) as! HPPDictionary
+                        swiftDelegate.HPPSwiftManagerCompletedWithResult(decodedResponse)
+                    }
+                    
+                } else {
                     // error
                     self.delegate?.HPPManagerFailedWithError!(error! as NSError)
+                    self.swiftDelegate?.HPPSwiftManagerFailedWithError(error)
                     self.hppViewController.dismiss(animated: true, completion: nil)
                 }
 
             } catch {
                 // error
                 self.delegate?.HPPManagerFailedWithError!(error as NSError)
+                self.swiftDelegate?.HPPSwiftManagerFailedWithError(error)
                 self.hppViewController.dismiss(animated: true, completion: nil)
             }
         })
@@ -487,6 +521,7 @@ open class HPPManager: NSObject, UIWebViewDelegate, HPPViewControllerDelegate {
 
     private func HPPViewControllerFailedWithError(_ error: Error?) {
         self.delegate?.HPPManagerFailedWithError!(error as NSError?)
+        self.swiftDelegate?.HPPSwiftManagerFailedWithError(error)
         self.hppViewController.dismiss(animated: true, completion: nil)
     }
 
@@ -495,6 +530,7 @@ open class HPPManager: NSObject, UIWebViewDelegate, HPPViewControllerDelegate {
      */
     func HPPViewControllerWillDismiss() {
         self.delegate?.HPPManagerCancelled!()
+        self.swiftDelegate?.HPPSwiftManagerCancelled()
     }
 
 }
